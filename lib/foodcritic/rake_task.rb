@@ -19,7 +19,11 @@ module FoodCritic
         task(name) do
           puts "Starting Foodcritic linting..."
           result = FoodCritic::Linter.new.check(default_options.merge(options))
-          printer = options[:context] ? ContextOutput.new : SummaryOutput.new
+          printer = if options[:context]
+                      ContextOutput.new($stdout)
+                    else
+                      SummaryOutput.new($stdout)
+                    end
           printer.output(result) if result.warnings.any?
           abort if result.failed?
           puts "Completed!"
@@ -32,9 +36,11 @@ module FoodCritic
         {
           fail_tags: ["correctness"], # differs to default cmd-line behaviour
           cookbook_paths: files,
+          tags: [],
           exclude_paths: ["test/**/*", "spec/**/*", "features/**/*"],
           context: false,
           chef_version: FoodCritic::Linter::DEFAULT_CHEF_VERSION,
+          progress: true,
         }
       end
     end

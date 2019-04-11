@@ -18,10 +18,10 @@ Feature: Ignoring rules on per line basis
     | #~FC006                      | not be shown |
     | #~FC022                      | be shown     |
     | #       ~FC006               | not be shown |
-    | # ~FC003,~FC006,~FC009       | not be shown |
-    | # ~FC003 ~FC006 ~FC009       | not be shown |
-    | # ~FC003,  ~FC006,  ~FC009   | not be shown |
-    | # ~FC003,~FC009              | be shown     |
+    | # ~FC006,~FC009              | not be shown |
+    | # ~FC006 ~FC009              | not be shown |
+    | # ~FC006,  ~FC009            | not be shown |
+    | # ~FC009                     | be shown     |
     | # FC006                      | be shown     |
     | # ~ FC006                    | be shown     |
     | # fc006                      | be shown     |
@@ -46,7 +46,7 @@ Feature: Ignoring rules on per line basis
   Examples:
     | comment         | warnings    |
     |                 | FC002,FC039 |
-    | # ~FC002,~FC007 | FC002       |
+    | # ~FC002,~FC007 | FC039       |
     | # ~FC002,~FC039 |             |
     | # ~FC002        | FC039       |
 

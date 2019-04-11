@@ -28,7 +28,6 @@ Feature: Check for unrecognised resource attributes
     Given a recipe that declares a user-defined resource
     When I check the cookbook
     Then the unrecognised attribute warning 009 should not be displayed
-     And no error should have occurred
 
   Scenario: Resource declared with only a name attribute
     Given a recipe that declares a resource with only a name attribute
@@ -54,12 +53,3 @@ Feature: Check for unrecognised resource attributes
     Given a recipe that declares a resource with an attribute value set to the result of a method call
      When I check the cookbook
      Then the unrecognised attribute warning 009 should not be displayed
-
-  Scenario Outline: Create raid array with mdadm specifying layout
-    Given a recipe that creates a raid array with mdadm specifying layout
-     When I check the cookbook specifying <version> as the Chef version
-     Then the unrecognised attribute warning 009 should be <shown>
-  Examples:
-    | version  | shown |
-    | 12.5.1   | true  |
-    | 12.11.18 | false |

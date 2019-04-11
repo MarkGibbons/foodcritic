@@ -5,6 +5,7 @@ module FoodCritic
   # Unless the environment variable FC_FORK_PROCESS is set to 'true' then the features will be run in the same process.
   module CommandHelpers
 
+    require "minitest"
     include MiniTest::Assertions
 
     attr_writer :assertions
@@ -16,7 +17,6 @@ module FoodCritic
     WARNINGS = {
       "FC001" => "Use strings in preference to symbols to access node attributes",
       "FC002" => "Avoid string interpolation where not required",
-      "FC003" => "Check whether you are running with chef server before using server-specific features",
       "FC004" => "Use a service resource to start and stop services",
       "FC005" => "Avoid repetition of resource declarations",
       "FC006" => "Mode should be quoted or fully specified when setting file permissions",
@@ -25,27 +25,22 @@ module FoodCritic
       "FC009" => "Resource attribute not recognised",
       "FC010" => "Invalid search syntax",
       "FC011" => "Missing README in markdown format",
-      "FC012" => "Use Markdown for README rather than RDoc",
       "FC013" => "Use file_cache_path rather than hard-coding tmp paths",
       "FC014" => "Consider extracting long ruby_block to library",
       "FC015" => "Consider converting definition to a Custom Resource",
       "FC016" => "LWRP does not declare a default action",
-      "FC017" => "LWRP does not notify when updated",
       "FC018" => "LWRP uses deprecated notification syntax",
       "FC019" => "Access node attributes in a consistent manner",
       "FC021" => "Resource condition in provider may not behave as expected",
       "FC022" => "Resource condition within loop may not behave as expected",
-      "FC023" => "Prefer conditional attributes",
       "FC024" => "Consider adding platform equivalents",
-      "FC025" => "Prefer chef_gem to compile-time gem install",
-      "FC026" => "Conditional execution block attribute contains only string",
       "FC027" => "Resource sets internal attribute",
       "FC028" => "Incorrect #platform? usage",
       "FC029" => "No leading cookbook name in recipe metadata",
       "FC030" => "Cookbook contains debugger breakpoints",
-      "FC031" => "Cookbook without metadata file",
+      "FC031" => "Cookbook without metadata.rb file",
       "FC032" => "Invalid notification timing",
-      "FC033" => "Missing template",
+      "FC033" => "Missing template file",
       "FC034" => "Unused template variables",
       "FC037" => "Invalid notification action",
       "FC038" => "Invalid resource action",
@@ -58,24 +53,26 @@ module FoodCritic
       "FC045" => "Metadata does not contain cookbook name",
       "FC046" => "Attribute assignment uses assign unless nil",
       "FC047" => "Attribute assignment does not specify precedence",
-      "FC048" => "Prefer Mixlib::ShellOut",
       "FC049" => "Role name does not match containing file name",
       "FC050" => "Name includes invalid characters",
       "FC051" => "Template partials loop indefinitely",
-      "FC052" => 'Metadata uses the unimplemented "suggests" keyword',
-      "FC053" => 'Metadata uses the unimplemented "recommends" keyword',
-      # FC054 was yanked and is considered reserved, do not reuse it
+      "FC052" => 'Metadata uses the deprecated "suggests" keyword',
+      "FC053" => 'Metadata uses the deprecated "recommends" keyword',
       "FC055" => "Ensure maintainer is set in metadata",
       "FC056" => "Ensure maintainer_email is set in metadata",
-      "FC057" => "Library provider does not declare use_inline_resources",
       "FC058" => "Library provider declares use_inline_resources and declares #action_<name> methods",
-      "FC059" => "LWRP provider does not declare use_inline_resources",
       "FC060" => "LWRP provider declares use_inline_resources and declares #action_<name> methods",
       "FC061" => "Valid cookbook versions are of the form x.y or x.y.z",
       "FC062" => "Cookbook should have version metadata",
       "FC063" => "Cookbook incorrectly depends on itself",
       "FC064" => "Ensure issues_url is set in metadata",
       "FC065" => "Ensure source_url is set in metadata",
+      "FC066" => "Ensure chef_version is set in metadata",
+      "FC067" => "Ensure at least one platform supported in metadata",
+      "FC068" => "Ensure license is set in metadata",
+      "FC069" => "Ensure standardized license defined in metadata",
+      "FC070" => "Ensure supports metadata defines valid platforms",
+      "FC071" => "Missing LICENSE file",
       "FCTEST001" => "Test Rule",
     }
 
@@ -86,11 +83,9 @@ module FoodCritic
 
     # Capture an error expected when calling a command.
     def capture_error
-      begin
-        yield
-        @error = all_output unless last_exit_status == 0
-      rescue => @error
-      end
+      yield
+      @error = all_output unless last_exit_status == 0
+    rescue => @error
     end
 
     # Return the last error captured
@@ -195,7 +190,7 @@ module FoodCritic
           :description => "Only check against rules valid for this version of Chef." },
 
         { :short => "f", :long => "epic-fail TAGS",
-          :description => "Fail the build based on tags. Use 'any' to fail on all warnings." },
+          :description => "Fail the build based on tags. Default of 'any' to fail on all warnings." },
 
         { :short => "l", :long => "list",
           :description => "List all enabled rules and their descriptions." },
@@ -225,7 +220,7 @@ module FoodCritic
           :description => "Display the foodcritic version." },
 
         { :short => "X", :long => "exclude PATH",
-          :description => "Exclude path(s) from being linted." },
+          :description => "Exclude path(s) from being linted. PATH is relative to the cookbook, not an absolute PATH. Default test/**/*,spec/**/*,features/**/*" },
 
       ]
     end

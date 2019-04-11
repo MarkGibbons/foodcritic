@@ -46,16 +46,16 @@ module FoodCritic
     # The DSL metadata doesn't necessarily reflect the version of Chef in the
     # local user gemset.
     def load_metadata
-      version = if self.respond_to?(:chef_version)
+      version = if respond_to?(:chef_version)
                   chef_version
                 else
                   Linter::DEFAULT_CHEF_VERSION
                 end
       metadata_path = [version, version.sub(/\.[a-z].*/, ""),
-        Linter::DEFAULT_CHEF_VERSION].map do |version|
-          metadata_path(version)
+        Linter::DEFAULT_CHEF_VERSION].map do |ver|
+          metadata_path(ver)
         end.find { |m| File.exist?(m) }
-      @dsl_metadata ||= Yajl::Parser.parse(IO.read(metadata_path),
+      @dsl_metadata ||= FFI_Yajl::Parser.parse(IO.read(metadata_path),
                                            symbolize_keys: true)
     end
 

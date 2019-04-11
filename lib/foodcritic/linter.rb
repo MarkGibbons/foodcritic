@@ -9,11 +9,11 @@ module FoodCritic
 
     # The default version that will be used to determine relevant rules. This
     # can be over-ridden at the command line with the `--chef-version` option.
-    DEFAULT_CHEF_VERSION = "12.13.37"
+    DEFAULT_CHEF_VERSION = "14.10.9".freeze
     attr_reader :chef_version
 
     # Perform a lint check. This method is intended for use by the command-line
-    # wrapper. If you are programatically using foodcritic you should use
+    # wrapper. If you are programmatically using foodcritic you should use
     # `#check` below.
     def self.run(cmd_line)
       # The first item is the string output, the second is exit code.
@@ -84,7 +84,7 @@ module FoodCritic
         relevant_tags = if options[:tags].any?
                           options[:tags]
                         else
-                          cookbook_tags(p[:filename])
+                          rule_file_tags(p[:filename])
                         end
 
         progress = "."
@@ -157,7 +157,7 @@ module FoodCritic
     end
 
     def load_rules!(options)
-      rule_files = [File.join(File.dirname(__FILE__), "rules.rb")]
+      rule_files = Dir.glob(File.join(File.dirname(__FILE__), "rules", "*"))
       rule_files << options[:include_rules]
       rule_files << rule_files_in_gems if options[:search_gems]
       @rules = RuleDsl.load(rule_files.flatten.compact, chef_version)
@@ -166,9 +166,11 @@ module FoodCritic
     private
 
     def rule_files_in_gems
-      Gem::Specification.latest_specs(true).map do |spec|
-        spec.matches_for_glob("foodcritic/rules/**/*.rb")
-      end.flatten
+      Gem::Specification
+        .latest_specs(true)
+        .reject { |spec| spec.name == "foodcritic" }
+        .map { |spec| spec.matches_for_glob("foodcritic/rules/**/*.rb") }
+        .flatten
     end
 
     def remove_ignored(matches, rule, file)
@@ -181,7 +183,7 @@ module FoodCritic
     end
 
     def ignore_line_match?(line, rule)
-      ignores = line.to_s[/\s+#\s*(.*)/, 1]
+      ignores = line.to_s[/.*#\s*(.*)/, 1]
       if ignores && ignores.include?("~")
         !rule.matches_tags?(ignores.split(/[ ,]/))
       else
@@ -197,15 +199,44 @@ module FoodCritic
       rule.applies_to.yield(Gem::Version.create(version))
     end
 
-    def cookbook_tags(file)
+    # given a file in the cookbook lookup all the applicable tag rules defined in rule
+    # files. The rule file is either that specified via CLI or the .foodcritic file
+    # in the cookbook. We cache this information at the cookbook level to prevent looking
+    #  up the same thing dozens of times
+    #
+    # @param [String] file in the cookbook
+    # @return [Array] array of tag rules
+    def rule_file_tags(file)
+      cookbook = cookbook_dir(file)
+      @tag_cache ||= {}
+
+      # lookup the tags in the cache has and return that if we find something
+      cb_tags = @tag_cache[cookbook]
+      return cb_tags unless cb_tags.nil?
+
+      # if a rule file has been specified use that. Otherwise use the .foodcritic file in the CB
+      tags = if @options[:rule_file]
+               raise "ERROR: Could not find the specified rule file at #{@options[:rule_file]}" unless File.exist?(@options[:rule_file])
+               parse_rule_file(@options[:rule_file])
+             else
+               File.exist?("#{cookbook}/.foodcritic") ? parse_rule_file("#{cookbook}/.foodcritic") : []
+             end
+
+      @tag_cache[cookbook] = tags
+      tags
+    end
+
+    # given a filename parse any tag rules in that file
+    #
+    # @param [String] rule file path
+    # @return [Array] array of tag rules from the file
+    def parse_rule_file(file)
       tags = []
-      fc_file = "#{cookbook_dir(file)}/.foodcritic"
-      if File.exist? fc_file
-        begin
-          tag_text = File.read fc_file
-          tags = tag_text.split(/\s/)
-        rescue Errno::EACCES
-        end
+      begin
+        tag_text = File.read file
+        tags = tag_text.split(/\s/)
+      rescue
+        raise "ERROR: Could not read or parse the specified rule file at #{file}"
       end
       tags
     end
@@ -216,13 +247,46 @@ module FoodCritic
       end
     end
 
+    # provides the path to the cookbook from a file within the cookbook
+    # we cache this data in a hash because this method gets called often
+    # for the same files.
+    #
+    # @param [String] file - a file path in the cookbook
+    # @return [String] the path to the cookbook
     def cookbook_dir(file)
-      Pathname.new(File.join(File.dirname(file),
-                             case File.basename(file)
-                             when "metadata.rb" then ""
-                             when /\.erb$/ then "../.."
-                             else ".."
-                             end)).cleanpath
+      @dir_cache ||= {}
+      abs_file = File.absolute_path(file)
+
+      # lookup the file in the cache has and return that if we find something
+      cook_val = @dir_cache[abs_file]
+      return cook_val unless cook_val.nil?
+
+      if file =~ /\.erb$/
+        # split each directory into an item in the array
+        dir_array = File.dirname(file).split(File::SEPARATOR)
+
+        # walk through the array of directories backwards until we hit the templates directory
+        position = -1
+        position -= 1 until dir_array[position] == "templates"
+
+        # go back 1 more position to get to the cookbook dir
+        position -= 1
+
+        # slice from the start to the cookbook dir and then join it all back to a string
+        cook_val = dir_array.slice(0..position).join(File::SEPARATOR)
+      else
+        # determine the difference to the root of the CB from our file's directory
+        relative_difference = case File.basename(file)
+                              when "recipe.rb", "attributes.rb", "metadata.rb" then ""
+                              else # everything else is 1 directory up ie. cookbook/recipes/default.rb
+                                ".."
+                              end
+
+        cook_val = Pathname.new(File.join(File.dirname(file), relative_difference)).cleanpath
+      end
+
+      @dir_cache[abs_file] = cook_val
+      cook_val
     end
 
     def dsl_method_for_file(file)
@@ -240,8 +304,10 @@ module FoodCritic
       end
     end
 
-    # Return the files within a cookbook tree that we are interested in trying
-    # to match rules against.
+    # Return the files within a cookbook tree that we are interested in trying to match rules against.
+    #
+    # @param [Hash] paths - paths of interest: {:exclude=>[], :cookbook=>[], :role=>[], :environment=>[]}
+    # @return [Array] array of hashes for each file {:filename=>"./metadata.rb", :path_type=>:cookbook}
     def files_to_process(paths)
       paths.reject { |type, _| type == :exclude }.map do |path_type, dirs|
         dirs.map do |dir|
@@ -255,8 +321,8 @@ module FoodCritic
 
           if File.directory?(dir)
             glob = if path_type == :cookbook
-                     "{metadata.rb,{attributes,definitions,libraries,"\
-                     "providers,recipes,resources}/*.rb,templates/*/*.erb}"
+                     "{metadata.rb,attributes.rb,recipe.rb,{attributes,definitions,libraries,"\
+                     "providers,recipes,resources}/*.rb,templates/**/*.erb}"
                    else
                      "*.rb"
                    end
@@ -283,7 +349,7 @@ module FoodCritic
         if m.respond_to?(:node_name)
           match(m)
         elsif m.respond_to?(:xpath)
-          m.to_a.map { |m| match(m) }
+          m.to_a.map { |n| match(n) }
         else
           m
         end

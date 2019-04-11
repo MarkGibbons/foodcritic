@@ -43,7 +43,7 @@ module FoodCritic
 
     # Create a cookbook that will match the specified rules.
     #
-    # @param [Array] codes The codes to match. Only FC002, FC003 and FC004 are supported.
+    # @param [Array] codes The codes to match. Only FC002, FC004 and FC005 and FC006 are supported.
     def cookbook_that_matches_rules(codes)
       recipe = ""
       codes.each do |code|
@@ -53,13 +53,23 @@ module FoodCritic
               action :create
             end
           }
-        elsif code == "FC003"
-          recipe += %Q{nodes = search(:node, "hostname:[* TO *]")\n}
         elsif code == "FC004"
           recipe += %q{
             execute "stop-jetty" do
               command "/etc/init.d/jetty6 stop"
               action :run
+            end
+          }
+        elsif code == "FC005"
+          recipe += %q{
+            package 'erlang-base' do
+              action :upgrade
+            end
+            package 'erlang-corba' do
+              action :upgrade
+            end
+            package 'erlang-another' do
+              action :upgrade
             end
           }
         elsif code == "FC006"
@@ -82,6 +92,27 @@ module FoodCritic
         issues_url 'http://github.com/foo/bar_cookbook/issues'
         source_url 'http://github.com/foo/bar_cookbook'
       }.strip)
+    end
+
+    # Create a cookbook with a custom resource
+    #
+    # @author Tim Smith - tsmith@chef.io
+    # @since 10.1.1
+    def cookbook_with_custom_resource
+      write_resource("site", %Q{
+        property :name, String, name_property: true
+        property :variables, Hash, default: {}
+
+        action :create do
+          log "Here is where I would create a " + thing
+        end
+
+        action_class do
+          def thing
+            return "site"
+          end
+        end
+      })
     end
 
     # Create a cookbook with a LRWP
@@ -304,22 +335,6 @@ module FoodCritic
           group "root"
           mode #{mode}
           action :create
-        end
-      }
-    end
-
-    # Create a recipe that controls a service using the specified method.
-    #
-    # @param [Symbol] method How to start the service, one of: :init_d, :invoke_rc_d, :upstart, :service, :service_full_path.
-    # @param [Boolean] do_sleep Whether to prefix the service cmd with a bash sleep
-    # @param [Symbol] action The action to take (start, stop, reload, restart)
-    def recipe_controls_service(method = :service, do_sleep = false, action = :start)
-      cmds = { :init_d => "/etc/init.d/foo #{action}", :invoke_rc_d => "invoke-rc.d foo #{action}", :upstart => "#{action} foo",
-               :service => "service foo #{action}", :service_full_path => "/sbin/service foo #{action}" }
-      write_recipe %Q{
-        execute "#{action}-foo-service" do
-          command "#{do_sleep ? 'sleep 5; ' : ''}#{cmds[method]}"
-          action :run
         end
       }
     end

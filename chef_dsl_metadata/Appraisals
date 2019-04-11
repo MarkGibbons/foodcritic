@@ -1,26 +1,14 @@
 chef_versions = [
-  '12.0.0', '12.0.1', '12.0.3',
-  '12.1.0', '12.1.1', '12.1.2',
-  '12.2.1',
-  '12.3.0',
-  '12.4.0','12.4.1',
-  '12.5.1',
-  '12.6.0',
-  '12.7.2',
-  '12.8.1',
-  '12.9.38',
-  '12.10.24',
-  '12.11.18',
-  '12.12.13',
-  '12.13.37'
+  "13.12.3",
+  "14.10.9",
 ]
 chef_versions.each do |version|
   appraise "chef_#{version}" do
-    gem 'chef', version
+    gem "chef", version
     if !! RUBY_PLATFORM =~ /mswin|mingw|windows/
-      gem 'ffi'
-      gem 'ruby-wmi'
-      gem 'win32-service'
+      gem "ffi"
+      gem "ruby-wmi"
+      gem "win32-service"
     end
   end
 end

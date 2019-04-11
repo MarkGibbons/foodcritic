@@ -37,12 +37,3 @@ Feature: Check for invalid resource actions
     | service  | enable, start        | should not |
     | service  | enble, start         | should     |
     | foo      | energize, revitalize | should not |
-
-  Scenario Outline: Try to mask a systemd service
-    Given a recipe that tries to mask a systemd service
-     When I check the cookbook specifying <version> as the Chef version
-     Then the invalid resource action warning 038 should be <shown>
-  Examples:
-    | version   | shown  |
-    | 12.8.1    | false  |
-    | 12.7.2    | true   |

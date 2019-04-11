@@ -1,17 +1,23 @@
-require_relative "../regression_helpers"
+require "spec_helper"
 
 describe "regression test" do
+  command("#{File.expand_path("../../../bin/foodcritic", __FILE__)} --no-progress --tags any .", allow_error: true)
 
-  let(:expected_lint_output) do
-    File.read("spec/regression/expected-output.txt")
+  File.readlines(File.expand_path("../cookbooks.txt", __FILE__)).each do |line|
+    name, ref = line.strip.split(":")
+
+    context "with cookbook #{name}", "regression_#{name}" => true do
+      before do
+        command("git clone -q https://github.com/chef-cookbooks/#{name}.git .")
+        command("git checkout -q #{ref}")
+      end
+
+      it "should match expected output" do
+        expected_output = File.readlines(File.expand_path("../expected/#{name}.txt", __FILE__))
+        expected_output.each do |expected_line|
+          expect(subject.stdout).to include expected_line
+        end
+      end
+    end
   end
-
-  let(:actual_lint_output) do
-    lint_regression_cookbooks
-  end
-
-  it "should result in the expected matches against a pinned set of cookbooks" do
-    actual_lint_output.must_equal expected_lint_output
-  end
-
 end

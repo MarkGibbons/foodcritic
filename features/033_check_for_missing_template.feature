@@ -25,6 +25,14 @@ Feature: Check for missing template
     | uses an inferred template                                                 | should not be displayed |
     | uses a template from another cookbook                                     | should not be displayed |
 
+  Scenario Outline: Template in the root of the templates directory
+    Given a cookbook recipe that refers to a template in the root of the templates directory
+     When I check the cookbook specifying <version> as the Chef version
+     Then the missing template warning 033 <warning>
+  Examples:
+    | version    | warning                   |
+    | 12.9.38    | should not be displayed   |
+
   Scenario: Template within deploy resource
     Given a cookbook recipe with a deploy resource that contains a template resource
      When I check the cookbook

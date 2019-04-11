@@ -12,6 +12,18 @@ module FoodCritic
 
     class RecursedTooFarError < StandardError; end
 
+    # Match unless a file exists using the basepath of the cookbook and the filepath
+    #
+    # @author Joseph Holsten - joseph@josephholsten.com
+    # @since 10.3
+    # @param basepath [String] base path of the cookbook
+    # @param filepath [String] path to the file within the cookbook
+    # @return [String] the absolute path to the base of the cookbook
+    def ensure_file_exists(basepath, filepath)
+      path = File.join(basepath, filepath)
+      [file_match(path)] unless File.exist?(path)
+    end
+
     # Find attribute access by type.
     def attribute_access(ast, options = {})
       options = { type: :any, ignore_calls: false }.merge!(options)
@@ -32,50 +44,30 @@ module FoodCritic
       end
     end
 
-    # Does the specified recipe check for Chef Solo?
-    def checks_for_chef_solo?(ast)
-      raise_unless_xpath!(ast)
-      # TODO: This expression is too loose, but also will fail to match other
-      # types of conditionals.
-      (!ast.xpath(%q{//*[self::if or self::ifop or self::unless]/
-        *[self::aref or child::aref or self::call]
-        [count(descendant::const[@value = 'Chef' or @value = 'Config']) = 2
-          and
-            (   count(descendant::ident[@value='solo']) > 0
-            or  count(descendant::tstring_content[@value='solo']) > 0
-            )
-          ]}).empty?) ||
-        ast.xpath('//if_mod[return][aref/descendant::ident/@value="solo"]/aref/
-          const_path_ref/descendant::const').map do |c|
-          c["value"]
-        end == %w{Chef Config}
-    end
+    # The absolute path of a cookbook from the specified file.
+    #
+    # @author Tim Smith - tsmith@chef.io
+    # @since 10.1
+    # @param file [String, Pathname] relative or absolute path to a file in the cookbook
+    # @return [String] the absolute path to the base of the cookbook
+    def cookbook_base_path(file)
+      file = File.expand_path(file) # make sure we get an absolute path
+      file = File.dirname(file) unless File.directory?(file) # get the dir only
 
-    # Is the
-    # [chef-solo-search library](https://github.com/edelight/chef-solo-search)
-    # available?
-    def chef_solo_search_supported?(recipe_path)
-      return false if recipe_path.nil? || !File.exist?(recipe_path)
-
-      # Look for the chef-solo-search library.
-      #
-      # TODO: This will not work if the cookbook that contains the library
-      # is not under the same `cookbook_path` as the cookbook being checked.
-      cbk_tree_path = Pathname.new(File.join(recipe_path, "../../.."))
-      search_libs = Dir[File.join(cbk_tree_path.realpath,
-                                  "*/libraries/search.rb")]
-
-      # True if any of the candidate library files match the signature:
-      #
-      #     class Chef
-      #       def search
-      search_libs.any? do |lib|
-        !read_ast(lib).xpath(%q{//class[count(descendant::const[@value='Chef']
-          ) = 1]/descendant::def/ident[@value='search']}).empty?
+      # get list of items in the dir and intersect with metadata array.
+      # until we get an interfact (we have a metadata) walk up the dir structure
+      until (Dir.entries(file) & %w{metadata.rb metadata.json}).any?
+        file = File.dirname(file)
       end
+
+      file
     end
 
-    # Support function to retrieve a metadata field
+    # Retrieves a value of a metadata field.
+    #
+    # @author Miguel Fonseca
+    # @since 7.0.0
+    # @return [String] the value of the metadata field
     def metadata_field(file, field)
       until (file.split(File::SEPARATOR) & standard_cookbook_subdirs).empty?
         file = File.absolute_path(File.dirname(file.to_s))
@@ -95,6 +87,9 @@ module FoodCritic
     end
 
     # The name of the cookbook containing the specified file.
+    #
+    # @param file [String] file within a cookbook
+    # @return [String] name of the cookbook
     def cookbook_name(file)
       raise ArgumentError, "File cannot be nil or empty" if file.to_s.empty?
 
@@ -111,14 +106,20 @@ module FoodCritic
       end
     end
 
-    # The maintainer of the cookbook containing the specified file.
+    # Return metadata maintainer property given any file in the cookbook
+    #
+    # @param file [String] file within a cookbook
+    # @return [String] the maintainer of the cookbook
     def cookbook_maintainer(file)
       raise ArgumentError, "File cannot be nil or empty" if file.to_s.empty?
 
       metadata_field(file, "maintainer")
     end
 
-    # The maintainer email of the cookbook containing the specified file.
+    # Return metadata maintainer_email property given any file in the cookbook
+    #
+    # @param file [String] file within a cookbook
+    # @return [String] email of the maintainer of the cookbook
     def cookbook_maintainer_email(file)
       raise ArgumentError, "File cannot be nil or empty" if file.to_s.empty?
 
@@ -129,33 +130,38 @@ module FoodCritic
     def declared_dependencies(ast)
       raise_unless_xpath!(ast)
 
+      deps = []
       # String literals.
       #
       #     depends 'foo'
-      deps = ast.xpath(%q{//command[ident/@value='depends']/
-        descendant::args_add/descendant::tstring_content[1]})
+      deps += field(ast, "depends").xpath("descendant::args_add/descendant::tstring_content[1]")
 
       # Quoted word arrays are also common.
       #
       #     %w{foo bar baz}.each do |cbk|
       #       depends cbk
       #     end
-      deps = deps.to_a +
-        word_list_values(ast, "//command[ident/@value='depends']")
-      deps.uniq.map { |dep| dep["value"].strip }
+      deps += word_list_values(field(ast, "depends"))
+      deps.uniq!
+      deps.map! { |dep| dep["value"].strip }
+      deps
     end
 
-    # The key / value pair in an environment or role ruby file
+    # Look for a method call with a given name.
+    #
+    # @param ast [Nokogiri::XML::Node] Document to search under
+    # @param field_name [String] Method name to search for
+    # @return [Nokogiri::XML::NodeSet]
     def field(ast, field_name)
       if field_name.nil? || field_name.to_s.empty?
         raise ArgumentError, "Field name cannot be nil or empty"
       end
-      ast.xpath("//command[ident/@value='#{field_name}']")
+      ast.xpath("(.//command[ident/@value='#{field_name}']|.//fcall[ident/@value='#{field_name}']/..)")
     end
 
     # The value for a specific key in an environment or role ruby file
     def field_value(ast, field_name)
-      field(ast, field_name).xpath('args_add_block/descendant::tstring_content
+      field(ast, field_name).xpath('.//args_add_block//tstring_content
         [count(ancestor::args_add) = 1][count(ancestor::string_add) = 1]
         /@value').map { |a| a.to_s }.last
     end
@@ -173,17 +179,21 @@ module FoodCritic
     # These are equivalent:
     #
     #     find_resources(ast)
-    #     find_resources(ast, :type => :any)
+    #     find_resources(ast, type: :any)
     #
-    # Restrict to a specific type of resource:
+    # Restrict to a specific type of resource(s):
     #
-    #     find_resources(ast, :type => :service)
+    #     find_resources(ast, type: 'service')
+    #     find_resources(ast, type: %w(service file))
     #
     def find_resources(ast, options = {})
       options = { type: :any }.merge!(options)
       return [] unless ast.respond_to?(:xpath)
       scope_type = ""
-      scope_type = "[@value='#{options[:type]}']" unless options[:type] == :any
+      unless options[:type] == :any
+        type_array =  Array(options[:type]).map { |x| "@value='#{x}'" }
+        scope_type = "[#{type_array.join(' or ')}]"
+      end
 
       # TODO: Include nested resources (provider actions)
       no_actions = "[command/ident/@value != 'action']"
@@ -338,25 +348,33 @@ module FoodCritic
     end
 
     # The list of standard cookbook sub-directories.
+    #
+    # @since 1.0.0
+    # @return [array] array of all default sub-directories in a cookbook
     def standard_cookbook_subdirs
       %w{attributes definitions files libraries providers recipes resources
          templates}
     end
 
-    # Platforms declared as supported in cookbook metadata
+    # Platforms declared as supported in cookbook metadata. Returns an array
+    # of hashes containing the name and version constraints for each platform.
+    #
+    # @param ast [Nokogiri::XML::Node] Document to search from.
+    # @return [Array<Hash>]
     def supported_platforms(ast)
-      platforms = ast.xpath('//command[ident/@value="supports"]/
-        descendant::*[self::string_literal or self::symbol_literal]
-        [position() = 1]
-        [self::symbol_literal or count(descendant::string_add) = 1]/
-        descendant::*[self::tstring_content | self::ident]')
-      platforms = platforms.to_a +
-        word_list_values(ast, "//command[ident/@value='supports']")
+      # Find the supports() method call.
+      platforms_ast = field(ast, "supports")
+      # Look for the first argument (the node next to the top args_new) and
+      # filter out anything with a string_embexpr since that can't be parsed
+      # statically. Then grab the static value for both strings and symbols, and
+      # finally combine it with the word list (%w{}) analyzer.
+      platforms = platforms_ast.xpath("(.//args_new)[1]/../*[not(.//string_embexpr)]").xpath(".//tstring_content|.//symbol/ident") | word_list_values(platforms_ast)
       platforms.map do |platform|
-        versions = platform.xpath('ancestor::args_add[position() > 1]/
-	  string_literal/descendant::tstring_content/@value').map { |v| v.to_s }
-        { platform: platform["value"], versions: versions }
-      end.sort { |a, b| a[:platform] <=> b[:platform] }
+        # For each platform value, look for all arguments after the first, then
+        # extract the string literal value.
+        versions = platform.xpath("ancestor::args_add[not(args_new)]/*[position()=2]//tstring_content/@value")
+        { platform: platform["value"].lstrip, versions: versions.map(&:to_s) }
+      end.sort_by { |p| p[:platform] }
     end
 
     # Template filename
@@ -395,6 +413,23 @@ module FoodCritic
         File.file?(path)
       end.reject do |path|
         File.basename(path) == ".DS_Store" || File.extname(path) == ".swp"
+      end
+    end
+
+    # Give a filename path it returns the hash of the JSON contents
+    #
+    # @author Tim Smith - tsmith@chef.io
+    # @since 11.0
+    # @param filename [String] path to a file in JSON format
+    # @return [Hash] hash of JSON content
+    def json_file_to_hash(filename)
+      raise "File #{filename} not found" unless File.exist?(filename)
+
+      file = File.read(filename)
+      begin
+        FFI_Yajl::Parser.parse(file)
+      rescue FFI_Yajl::ParseError
+        raise "File #{filename} does not appear to contain valid JSON"
       end
     end
 
@@ -476,8 +511,13 @@ module FoodCritic
       end.join
     end
 
+    # check to see if the passed method is a node method
+    # we generally look this up from the chef DSL data we have
+    # but we specifically check for 'set' and 'set_unless' since
+    # those exist in cookbooks, but are not longer part of chef 14+
+    # this prevents false positives in FC019 anytime node.set is found
     def node_method?(meth, cookbook_dir)
-      chef_dsl_methods.include?(meth) ||
+      chef_dsl_methods.include?(meth) || meth == :set || meth == :set_unless ||
         patched_node_method?(meth, cookbook_dir)
     end
 
@@ -520,9 +560,13 @@ module FoodCritic
       source = if file.to_s.split(File::SEPARATOR).include?("templates")
                  template_expressions_only(file)
                else
-                 File.read(file).encode("utf-8", "binary", :undef => :replace)
+                 File.read(file).encode("utf-8", "binary", undef: :replace)
                end
-      build_xml(Ripper::SexpBuilder.new(source).parse)
+      begin
+        build_xml(Ripper::SexpBuilder.new(source).parse)
+      rescue RuntimeError => e # this generally means bad encoding
+        raise "Could not parse the file at #{file}. #{e}"
+      end
     end
 
     # XPath custom function
@@ -581,7 +625,7 @@ module FoodCritic
 
     def template_expressions_only(file)
       exprs = Template::ExpressionExtractor.new.extract(
-        File.read(file).encode("utf-8", "binary", :undef => :replace)
+        File.read(file).encode("utf-8", "binary", undef: :replace)
       )
       lines = Array.new(exprs.map { |e| e[:line] }.max || 0, "")
       exprs.each do |e|
@@ -604,14 +648,18 @@ module FoodCritic
       end.sort
     end
 
-    def word_list_values(ast, xpath)
-      var_ref = ast.xpath("#{xpath}/descendant::var_ref/ident")
+    def word_list_values(ast, xpath = nil)
+      # Find the node for the field argument variable. (e.g. given `foo d`, find `d`)
+      var_ref = ast.xpath("#{xpath ? xpath + '/' : ''}descendant::var_ref/ident")
       if var_ref.empty?
-        []
+        # The field is either a static value, or took no arguments, or something
+        # more complex than we care to evaluate.
+        Nokogiri::XML::NodeSet.new(ast.document)
       else
-        ast.xpath(%Q{descendant::block_var/params/
-          ident#{var_ref.first['value']}/ancestor::method_add_block/call/
-          descendant::tstring_content})
+        # Look back out the tree for a method_add_block which contains a block
+        # variable matching the field argument variable, and then drill down to
+        # all the literal content nodes.
+        ast.xpath(%Q{ancestor::method_add_block[//block_var//ident/@value='#{var_ref.first['value']}']/call//tstring_content})
       end
     end
   end

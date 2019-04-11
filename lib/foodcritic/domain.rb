@@ -33,8 +33,8 @@ module FoodCritic
     end
 
     def to_s
-      @rules.sort { |a, b| a.code <=> b.code }.
-        map { |r| r.to_s }.join("\n")
+      @rules.sort_by(&:code)
+        .map { |r| r.to_s }.join("\n")
     end
 
   end
